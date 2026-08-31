@@ -11,14 +11,17 @@ use std::sync::Arc;
 macro_rules! impl_decodable_for_uint {
     ($type: ident, $bit_size: expr) => {
         impl Decode for $type {
+            #[inline(always)]
             fn is_ssz_fixed_len() -> bool {
                 true
             }
 
+            #[inline(always)]
             fn ssz_fixed_len() -> usize {
                 $bit_size / 8
             }
 
+            #[inline(always)]
             fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
                 let len = bytes.len();
                 let expected = <Self as Decode>::ssz_fixed_len();
@@ -254,7 +257,16 @@ impl<T: Decode> Decode for Option<T> {
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         let (selector, body) = split_union_bytes(bytes)?;
         match selector.into() {
-            0u8 => Ok(None),
+            0u8 => {
+                if body.is_empty() {
+                    Ok(None)
+                } else {
+                    Err(DecodeError::InvalidByteLength {
+                        len: body.len(),
+                        expected: 0,
+                    })
+                }
+            }
             1u8 => <T as Decode>::from_ssz_bytes(body).map(Option::Some),
             other => Err(DecodeError::UnionSelectorInvalid(other)),
         }
@@ -825,5 +837,51 @@ mod tests {
                 vec
             );
         }
+    }
+
+    #[test]
+    fn option_union_rejects_trailing_bytes() {
+        // Selector 0x00 for None variant, followed by a trailing byte 0xFF
+        // This should be rejected as the None variant must have an empty body.
+        let dirty_bytes: &[u8] = &[0x00, 0xFF];
+
+        assert_eq!(
+            <Option<u8>>::from_ssz_bytes(dirty_bytes),
+            Err(DecodeError::InvalidByteLength {
+                len: 1,
+                expected: 0
+            })
+        );
+
+        // Also test with multiple trailing bytes
+        let dirty_bytes_multi: &[u8] = &[0x00, 0xFF, 0xAB, 0xCD];
+
+        assert_eq!(
+            <Option<u8>>::from_ssz_bytes(dirty_bytes_multi),
+            Err(DecodeError::InvalidByteLength {
+                len: 3,
+                expected: 0
+            })
+        );
+
+        // Valid None encoding (just the selector with no body) should still work
+        let valid_none: &[u8] = &[0x00];
+        assert_eq!(<Option<u8>>::from_ssz_bytes(valid_none), Ok(None));
+
+        // Valid Some encoding should still work
+        let valid_some: &[u8] = &[0x01, 0x42];
+        assert_eq!(<Option<u8>>::from_ssz_bytes(valid_some), Ok(Some(0x42)));
+    }
+
+    #[test]
+    fn option_union_invalid_selector() {
+        assert_eq!(
+            <Option::<u8>>::from_ssz_bytes(&[0x02]),
+            Err(DecodeError::UnionSelectorInvalid(2))
+        );
+        assert_eq!(
+            <Option::<u8>>::from_ssz_bytes(&[0xff, 0x00, 0x00]),
+            Err(DecodeError::UnionSelectorInvalid(255))
+        );
     }
 }

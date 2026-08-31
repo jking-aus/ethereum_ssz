@@ -40,8 +40,15 @@ mod encode;
 pub mod legacy;
 mod union_selector;
 
+#[cfg(feature = "context_deserialize")]
+mod context_deserialize;
+
+pub use bitfield::bitvector_dynamic::{BitVectorDynamic, Dynamic};
+pub use bitfield::progressive::{Progressive, ProgressiveBitList};
 #[doc(hidden)]
-pub use bitfield::{BitList, BitVector, Bitfield, Error as BitfieldError, Fixed, Variable};
+pub use bitfield::{
+    BitList, BitVector, Bitfield, BitfieldBehaviour, Error as BitfieldError, Fixed, Variable,
+};
 pub use decode::{
     impls::decode_list_of_variable_length_items, read_offset, split_union_bytes,
     try_from_iter::TryFromIter, Decode, DecodeError, SszDecoder, SszDecoderBuilder,
